@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>工場メモ</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #252836;
+    --accent: #f5a623;
+    --accent2: #e8851a;
+    --danger: #e05555;
+    --text: #e8eaf0;
+    --text-muted: #7a7f94;
+    --border: #2e3347;
+    --recording: #e05555;
+    --success: #4caf8a;
+    --tag-bg: #2a2d3e;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* ヘッダー */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .app-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .memo-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--tag-bg);
+    padding: 3px 8px;
+    border-radius: 10px;
+  }
+
+  /* フィルタータブ */
+  .filter-tabs {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .filter-tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #000;
+    font-weight: 700;
+  }
+
+  /* メインコンテンツ */
+  main {
+    flex: 1;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: 200px;
+  }
+
+  /* メモカード */
+  .memo-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    position: relative;
+    transition: border-color 0.15s;
+    animation: slideIn 0.2s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .memo-card:active { border-color: var(--accent); }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .tag-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+  }
+  .tag-安全   { background: #5b2020; color: #f08080; }
+  .tag-品質   { background: #1e3a5b; color: #7eb8f0; }
+  .tag-設備   { background: #2d3b1e; color: #8ecb68; }
+  .tag-改善   { background: #3b2d1e; color: #f0b868; }
+  .tag-その他 { background: var(--tag-bg); color: var(--text-muted); }
+
+  .card-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+  .memo-text {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    justify-content: flex-end;
+  }
+  .btn-copy, .btn-delete {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-copy  { color: var(--text-muted); }
+  .btn-copy:active  { background: var(--surface2); color: var(--text); }
+  .btn-delete { color: var(--danger); border-color: #3d2020; }
+  .btn-delete:active { background: #2a1515; }
+
+  /* 空状態 */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state p { font-size: 13px; line-height: 1.8; }
+
+  /* 録音パネル（固定フッター） */
+  .record-panel {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px 24px;
+    z-index: 200;
+  }
+
+  /* タグ選択 */
+  .tag-selector {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    overflow-x: auto;
+  }
+  .tag-selector::-webkit-scrollbar { display: none; }
+  .tag-btn {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--tag-bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tag-btn.selected { border-color: var(--accent); color: var(--accent); }
+
+  /* テキスト入力エリア */
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  .memo-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    min-height: 44px;
+    max-height: 100px;
+    line-height: 1.5;
+    transition: border-color 0.15s;
+  }
+  .memo-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .memo-input::placeholder { color: var(--text-muted); }
+
+  /* 録音ボタン */
+  .btn-record {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #000;
+    font-size: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 12px rgba(245,166,35,0.4);
+  }
+  .btn-record.recording {
+    background: var(--recording);
+    animation: pulse 1.2s ease-in-out infinite;
+    box-shadow: 0 2px 16px rgba(224,85,85,0.6);
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 2px 12px rgba(224,85,85,0.5); }
+    50%       { transform: scale(1.1); box-shadow: 0 2px 20px rgba(224,85,85,0.8); }
+  }
+
+  /* 保存ボタン */
+  .btn-save {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: var(--success);
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 12px rgba(76,175,138,0.3);
+  }
+  .btn-save:active { transform: scale(0.93); }
+
+  /* ステータス */
+  .status-bar {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    min-height: 16px;
+    text-align: center;
+  }
+  .status-bar.listening { color: var(--recording); }
+  .status-bar.saved     { color: var(--success); }
+
+  /* トースト */
+  .toast {
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-10px);
+    background: var(--success);
+    color: #fff;
+    font-size: 13px;
+    padding: 8px 18px;
+    border-radius: 20px;
+    opacity: 0;
+    transition: all 0.2s;
+    pointer-events: none;
+    z-index: 300;
+    white-space: nowrap;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* エクスポートボタン */
+  .btn-export {
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .btn-export:active { background: var(--surface2); }
+
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-row">
+    <span class="app-title">🏭 工場メモ</span>
+    <div class="header-actions">
+      <button class="btn-export" onclick="exportMemos()">📤 出力</button>
+      <span class="memo-count" id="memoCount">0件</span>
+    </div>
+  </div>
+  <div class="filter-tabs" id="filterTabs">
+    <button class="tab active" data-tag="すべて" onclick="filterMemos(this, 'すべて')">すべて</button>
+    <button class="tab" data-tag="安全"   onclick="filterMemos(this, '安全')">🔴 安全</button>
+    <button class="tab" data-tag="品質"   onclick="filterMemos(this, '品質')">🔵 品質</button>
+    <button class="tab" data-tag="設備"   onclick="filterMemos(this, '設備')">🟢 設備</button>
+    <button class="tab" data-tag="改善"   onclick="filterMemos(this, '改善')">🟡 改善</button>
+    <button class="tab" data-tag="その他" onclick="filterMemos(this, 'その他')">⚪ その他</button>
+  </div>
+</header>
+
+<main id="memoList">
+  <div class="empty-state" id="emptyState">
+    <div class="empty-icon">📋</div>
+    <p>まだメモがありません。<br>マイクボタンで音声入力、<br>または直接テキストを入力してください。</p>
+  </div>
+</main>
+
+<div class="record-panel">
+  <div class="status-bar" id="statusBar">タグを選んで録音 or テキスト入力</div>
+  <div class="tag-selector" id="tagSelector">
+    <button class="tag-btn selected" data-tag="その他" onclick="selectTag(this, 'その他')">その他</button>
+    <button class="tag-btn" data-tag="安全"   onclick="selectTag(this, '安全')">🔴 安全</button>
+    <button class="tag-btn" data-tag="品質"   onclick="selectTag(this, '品質')">🔵 品質</button>
+    <button class="tag-btn" data-tag="設備"   onclick="selectTag(this, '設備')">🟢 設備</button>
+    <button class="tag-btn" data-tag="改善"   onclick="selectTag(this, '改善')">🟡 改善</button>
+  </div>
+  <div class="input-row">
+    <button class="btn-record" id="btnRecord" onclick="toggleRecording()" title="音声入力">🎤</button>
+    <textarea class="memo-input" id="memoInput" placeholder="気づきをメモ…" rows="1"
+      oninput="autoResize(this)"></textarea>
+    <button class="btn-save" onclick="saveCurrentMemo()" title="保存">✓</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 状態管理 =====
+let memos = JSON.parse(localStorage.getItem('factory-memos') || '[]');
+let selectedTag = 'その他';
+let currentFilter = 'すべて';
+let recognition = null;
+let isRecording = false;
+
+// ===== 初期化 =====
+renderMemos();
+
+// ===== 音声認識セットアップ =====
+function setupRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  const r = new SpeechRecognition();
+  r.lang = 'ja-JP';
+  r.continuous = false;
+  r.interimResults = true;
+
+  r.onstart = () => {
+    isRecording = true;
+    document.getElementById('btnRecord').classList.add('recording');
+    document.getElementById('btnRecord').textContent = '⏹';
+    setStatus('🔴 聞き取り中…', 'listening');
+  };
+
+  r.onresult = (e) => {
+    let transcript = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+    }
+    document.getElementById('memoInput').value = transcript;
+    autoResize(document.getElementById('memoInput'));
+  };
+
+  r.onend = () => {
+    isRecording = false;
+    document.getElementById('btnRecord').classList.remove('recording');
+    document.getElementById('btnRecord').textContent = '🎤';
+    const text = document.getElementById('memoInput').value.trim();
+    if (text) {
+      setStatus('✅ 認識完了。保存ボタンで記録', 'saved');
+    } else {
+      setStatus('タグを選んで録音 or テキスト入力', '');
+    }
+  };
+
+  r.onerror = (e) => {
+    isRecording = false;
+    document.getElementById('btnRecord').classList.remove('recording');
+    document.getElementById('btnRecord').textContent = '🎤';
+    if (e.error === 'not-allowed') {
+      setStatus('❌ マイクの許可が必要です', '');
+    } else if (e.error === 'no-speech') {
+      setStatus('声が聞き取れませんでした', '');
+    } else {
+      setStatus('エラー: ' + e.error, '');
+    }
+  };
+
+  return r;
+}
+
+// ===== 録音トグル =====
+function toggleRecording() {
+  if (!recognition) {
+    recognition = setupRecognition();
+    if (!recognition) {
+      alert('このブラウザは音声認識に対応していません。\nChromeブラウザをお試しください。');
+      return;
+    }
+  }
+  if (isRecording) {
+    recognition.stop();
+  } else {
+    document.getElementById('memoInput').value = '';
+    recognition.start();
+  }
+}
+
+// ===== メモ保存 =====
+function saveCurrentMemo() {
+  const text = document.getElementById('memoInput').value.trim();
+  if (!text) {
+    showToast('テキストを入力してください');
+    return;
+  }
+  const memo = {
+    id: Date.now(),
+    text,
+    tag: selectedTag,
+    time: new Date().toLocaleString('ja-JP', {
+      month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit'
+    })
+  };
+  memos.unshift(memo);
+  localStorage.setItem('factory-memos', JSON.stringify(memos));
+  document.getElementById('memoInput').value = '';
+  autoResize(document.getElementById('memoInput'));
+  setStatus('タグを選んで録音 or テキスト入力', '');
+  renderMemos();
+  showToast('✅ メモを保存しました');
+}
+
+// ===== タグ選択 =====
+function selectTag(el, tag) {
+  selectedTag = tag;
+  document.querySelectorAll('.tag-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+// ===== フィルター =====
+function filterMemos(el, tag) {
+  currentFilter = tag;
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderMemos();
+}
+
+// ===== レンダリング =====
+function renderMemos() {
+  const list = document.getElementById('memoList');
+  const filtered = currentFilter === 'すべて'
+    ? memos
+    : memos.filter(m => m.tag === currentFilter);
+
+  document.getElementById('memoCount').textContent = memos.length + '件';
+  document.getElementById('emptyState').style.display = filtered.length ? 'none' : 'block';
+
+  // 既存カードを削除（emptyStateは残す）
+  list.querySelectorAll('.memo-card').forEach(c => c.remove());
+
+  filtered.forEach(memo => {
+    const card = document.createElement('div');
+    card.className = 'memo-card';
+    card.dataset.id = memo.id;
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="tag-badge tag-${memo.tag}">${memo.tag}</span>
+        <span class="card-time">${memo.time}</span>
+      </div>
+      <div class="memo-text">${escapeHtml(memo.text)}</div>
+      <div class="card-actions">
+        <button class="btn-copy" onclick="copyMemo(${memo.id})">コピー</button>
+        <button class="btn-delete" onclick="deleteMemo(${memo.id})">削除</button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+// ===== 削除 =====
+function deleteMemo(id) {
+  if (!confirm('このメモを削除しますか？')) return;
+  memos = memos.filter(m => m.id !== id);
+  localStorage.setItem('factory-memos', JSON.stringify(memos));
+  renderMemos();
+}
+
+// ===== コピー =====
+function copyMemo(id) {
+  const memo = memos.find(m => m.id === id);
+  if (!memo) return;
+  const text = `[${memo.tag}] ${memo.time}\n${memo.text}`;
+  navigator.clipboard.writeText(text).then(() => showToast('📋 コピーしました'));
+}
+
+// ===== エクスポート（テキスト形式） =====
+function exportMemos() {
+  if (memos.length === 0) { showToast('メモがありません'); return; }
+  const lines = memos.map(m => `[${m.tag}] ${m.time}\n${m.text}`).join('\n\n---\n\n');
+  const blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const date = new Date().toISOString().slice(0,10);
+  a.download = `工場メモ_${date}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('📤 テキストファイルを出力しました');
+}
+
+// ===== ユーティリティ =====
+function setStatus(msg, cls) {
+  const el = document.getElementById('statusBar');
+  el.textContent = msg;
+  el.className = 'status-bar' + (cls ? ' ' + cls : '');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+// Enterキーで保存（Shift+Enterは改行）
+document.getElementById('memoInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    saveCurrentMemo();
+  }
+});
+</script>
+</body>
+</html>
