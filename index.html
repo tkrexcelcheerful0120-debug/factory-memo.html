@@ -433,6 +433,7 @@ let selectedTag = 'その他';
 let currentFilter = 'すべて';
 let recognition = null;
 let isRecording = false;
+let recordingPrefix = ''; // 録音開始前に入力済みのテキスト
 
 // ===== リアルタイム同期（Firestore → 画面） =====
 db.collection('memos')
@@ -468,7 +469,8 @@ function setupRecognition() {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       transcript += e.results[i][0].transcript;
     }
-    document.getElementById('memoInput').value = transcript;
+    const combined = recordingPrefix ? recordingPrefix + ' ' + transcript : transcript;
+    document.getElementById('memoInput').value = combined;
     autoResize(document.getElementById('memoInput'));
   };
 
@@ -512,7 +514,7 @@ function toggleRecording() {
   if (isRecording) {
     recognition.stop();
   } else {
-    document.getElementById('memoInput').value = '';
+    recordingPrefix = document.getElementById('memoInput').value.trim();
     recognition.start();
   }
 }
