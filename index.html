@@ -131,6 +131,9 @@
   .tag-品質   { background: #1e3a5b; color: #7eb8f0; }
   .tag-設備   { background: #2d3b1e; color: #8ecb68; }
   .tag-改善   { background: #3b2d1e; color: #f0b868; }
+  .tag-採用   { background: #2d1e5b; color: #b068f0; }
+  .tag-人員   { background: #1e4a4a; color: #68e0d0; }
+  .tag-生産計画 { background: #3b1e2d; color: #f068a0; }
   .tag-その他 { background: var(--tag-bg); color: var(--text-muted); }
 
   .card-time {
@@ -161,8 +164,29 @@
   }
   .btn-copy  { color: var(--text-muted); }
   .btn-copy:active  { background: var(--surface2); color: var(--text); }
+  .btn-edit  { color: var(--accent); border-color: #3d3020; }
+  .btn-edit:active  { background: #2a2010; }
   .btn-delete { color: var(--danger); border-color: #3d2020; }
   .btn-delete:active { background: #2a1515; }
+
+  /* インライン編集 */
+  .edit-area {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    line-height: 1.5;
+    margin-top: 8px;
+  }
+  .edit-area:focus { outline: none; }
+  .btn-edit-save { color: var(--success); border-color: #1e3d2d; }
+  .btn-edit-save:active { background: #1a2d22; }
+  .btn-edit-cancel { color: var(--text-muted); }
 
   .empty-state {
     text-align: center;
@@ -352,6 +376,9 @@
     <button class="tab" data-tag="品質"   onclick="filterMemos(this, '品質')">🔵 品質</button>
     <button class="tab" data-tag="設備"   onclick="filterMemos(this, '設備')">🟢 設備</button>
     <button class="tab" data-tag="改善"   onclick="filterMemos(this, '改善')">🟡 改善</button>
+    <button class="tab" data-tag="採用"   onclick="filterMemos(this, '採用')">🟣 採用</button>
+    <button class="tab" data-tag="人員"   onclick="filterMemos(this, '人員')">🩵 人員</button>
+    <button class="tab" data-tag="生産計画" onclick="filterMemos(this, '生産計画')">🩷 生産計画</button>
     <button class="tab" data-tag="その他" onclick="filterMemos(this, 'その他')">⚪ その他</button>
   </div>
 </header>
@@ -373,6 +400,9 @@
     <button class="tag-btn" data-tag="品質"   onclick="selectTag(this, '品質')">🔵 品質</button>
     <button class="tag-btn" data-tag="設備"   onclick="selectTag(this, '設備')">🟢 設備</button>
     <button class="tag-btn" data-tag="改善"   onclick="selectTag(this, '改善')">🟡 改善</button>
+    <button class="tag-btn" data-tag="採用"   onclick="selectTag(this, '採用')">🟣 採用</button>
+    <button class="tag-btn" data-tag="人員"   onclick="selectTag(this, '人員')">🩵 人員</button>
+    <button class="tag-btn" data-tag="生産計画" onclick="selectTag(this, '生産計画')">🩷 生産計画</button>
   </div>
   <div class="input-row">
     <button class="btn-record" id="btnRecord" onclick="toggleRecording()" title="音声入力">🎤</button>
@@ -550,19 +580,88 @@ function renderMemos() {
   filtered.forEach(memo => {
     const card = document.createElement('div');
     card.className = 'memo-card';
+    card.dataset.fid = memo.firestoreId;
     card.innerHTML = `
       <div class="card-header">
         <span class="tag-badge tag-${memo.tag}">${memo.tag}</span>
         <span class="card-time">${memo.timeDisplay || memo.time || ''}</span>
       </div>
       <div class="memo-text">${escapeHtml(memo.text)}</div>
-      <div class="card-actions">
-        <button class="btn-copy" onclick="copyMemo('${memo.firestoreId}')">コピー</button>
+      <div class="card-actions" id="actions-${memo.firestoreId}">
+        <button class="btn-copy btn-edit-cancel" onclick="copyMemo('${memo.firestoreId}')">コピー</button>
+        <button class="btn-copy btn-edit" onclick="startEdit('${memo.firestoreId}')">編集</button>
         <button class="btn-delete" onclick="deleteMemo('${memo.firestoreId}')">削除</button>
       </div>
     `;
     list.appendChild(card);
   });
+}
+
+// ===== 編集 =====
+const ALL_TAGS = ['その他', '安全', '品質', '設備', '改善', '採用', '人員', '生産計画'];
+const TAG_ICONS = { '安全':'🔴', '品質':'🔵', '設備':'🟢', '改善':'🟡', '採用':'🟣', '人員':'🩵', '生産計画':'🩷', 'その他':'⚪' };
+
+function startEdit(firestoreId) {
+  const memo = memos.find(m => m.firestoreId === firestoreId);
+  if (!memo) return;
+
+  const card = document.querySelector(`[data-fid="${firestoreId}"]`);
+  const textEl = card.querySelector('.memo-text');
+  const actionsEl = document.getElementById(`actions-${firestoreId}`);
+
+  // タグ選択ボタンを挿入
+  const tagRow = document.createElement('div');
+  tagRow.className = 'tag-selector';
+  tagRow.id = `edit-tags-${firestoreId}`;
+  tagRow.style.marginTop = '8px';
+  tagRow.innerHTML = ALL_TAGS.map(t => `
+    <button class="tag-btn${t === memo.tag ? ' selected' : ''}"
+      onclick="selectEditTag(this, '${firestoreId}')" data-tag="${t}">
+      ${TAG_ICONS[t]} ${t}
+    </button>`).join('');
+  textEl.before(tagRow);
+
+  // テキストをtextareaに置き換え
+  const textarea = document.createElement('textarea');
+  textarea.className = 'edit-area';
+  textarea.value = memo.text;
+  textarea.rows = 3;
+  textEl.replaceWith(textarea);
+  textarea.focus();
+
+  // ボタンを編集用に切り替え
+  actionsEl.innerHTML = `
+    <button class="btn-copy btn-edit-cancel" onclick="cancelEdit('${firestoreId}')">キャンセル</button>
+    <button class="btn-copy btn-edit-save" onclick="saveEdit('${firestoreId}')">保存</button>
+  `;
+}
+
+function selectEditTag(el, firestoreId) {
+  document.querySelectorAll(`#edit-tags-${firestoreId} .tag-btn`).forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function cancelEdit(firestoreId) {
+  renderMemos();
+}
+
+async function saveEdit(firestoreId) {
+  const card = document.querySelector(`[data-fid="${firestoreId}"]`);
+  const textarea = card.querySelector('.edit-area');
+  const newText = textarea.value.trim();
+  if (!newText) { showToast('テキストを入力してください'); return; }
+
+  const selectedTagBtn = card.querySelector(`#edit-tags-${firestoreId} .tag-btn.selected`);
+  const newTag = selectedTagBtn ? selectedTagBtn.dataset.tag : null;
+
+  try {
+    const update = { text: newText };
+    if (newTag) update.tag = newTag;
+    await db.collection('memos').doc(firestoreId).update(update);
+    showToast('✅ 編集しました');
+  } catch (e) {
+    showToast('⚠️ 編集に失敗しました');
+  }
 }
 
 // ===== 削除（アクティブリストのみ。ログは保持） =====
@@ -612,7 +711,8 @@ async function exportToExcel() {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '日報');
-    XLSX.writeFile(wb, '日報.xlsx');
+    const dateStr = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+    XLSX.writeFile(wb, `日報_${dateStr}.xlsx`);
     showToast('📊 日報Excelを出力しました');
   } catch (e) {
     showToast('⚠️ 出力に失敗しました');
