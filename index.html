@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>工場メモ</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -354,16 +352,11 @@
     align-items: center;
   }
 
-  /* 同期インジケーター */
-  .sync-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--success);
-    display: inline-block;
-    margin-right: 4px;
+  .storage-icon {
+    font-size: 12px;
+    color: var(--success);
+    margin-right: 2px;
   }
-  .sync-dot.offline { background: var(--danger); }
 </style>
 </head>
 <body>
@@ -398,7 +391,7 @@
 
 <div class="record-panel">
   <div class="status-bar" id="statusBar">
-    <span class="sync-dot" id="syncDot"></span>クラウド同期中…
+    <span class="storage-icon">💾</span>端末に保存中
   </div>
   <div class="tag-selector" id="tagSelector">
     <button class="tag-btn selected" data-tag="その他" onclick="selectTag(this, 'その他')">その他</button>
@@ -421,38 +414,45 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ===== Firebase 初期化 =====
-const firebaseConfig = {
-  apiKey: "AIzaSyApeFOFsKNv3dGrckwT9NN1gNytyDjgoYo",
-  authDomain: "factory-memo.firebaseapp.com",
-  projectId: "factory-memo",
-  storageBucket: "factory-memo.firebasestorage.app",
-  messagingSenderId: "697334998016",
-  appId: "1:697334998016:web:7fef60a25985b3118da4e5"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+// ===== ストレージ操作 =====
+const STORAGE_KEY = 'factory-memos';
+const LOG_KEY = 'factory-memos-log';
+
+function loadMemos() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveMemos(list) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+}
+
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function appendLog(memo) {
+  const log = loadLog();
+  log.push(memo);
+  localStorage.setItem(LOG_KEY, JSON.stringify(log));
+}
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
 
 // ===== 状態管理 =====
-let memos = [];
+let memos = loadMemos();
 let selectedTag = 'その他';
 let currentFilter = 'すべて';
 let recognition = null;
 let isRecording = false;
-let recordingPrefix = ''; // 録音開始前に入力済みのテキスト
+let recordingPrefix = '';
 
-// ===== リアルタイム同期（Firestore → 画面） =====
-db.collection('memos')
-  .orderBy('createdAt', 'desc')
-  .onSnapshot(snapshot => {
-    memos = snapshot.docs.map(doc => ({ ...doc.data(), firestoreId: doc.id }));
-    renderMemos();
-    setStatus('タグを選んで録音 or テキスト入力', '');
-    document.getElementById('syncDot').classList.remove('offline');
-  }, err => {
-    document.getElementById('syncDot').classList.add('offline');
-    setStatus('⚠️ 接続エラー', '');
-  });
+// 起動時に描画
+renderMemos();
+setStatus('タグを選んで録音 or テキスト入力', '');
 
 // ===== 音声認識セットアップ =====
 function setupRecognition() {
@@ -525,8 +525,8 @@ function toggleRecording() {
   }
 }
 
-// ===== メモ保存（Firestore + 永続ログ） =====
-async function saveCurrentMemo() {
+// ===== メモ保存 =====
+function saveCurrentMemo() {
   const text = document.getElementById('memoInput').value.trim();
   if (!text) {
     showToast('テキストを入力してください');
@@ -535,27 +535,24 @@ async function saveCurrentMemo() {
 
   const now = new Date();
   const memo = {
+    id: genId(),
     text,
     tag: selectedTag,
     date: now.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }),
     time: now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
     timeDisplay: now.toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    createdAt: now.getTime()
   };
 
-  try {
-    // アクティブリスト（削除可）
-    await db.collection('memos').add(memo);
-    // 永続ログ（削除不可・Excel出力用）
-    await db.collection('memos_log').add(memo);
+  memos.unshift(memo);
+  saveMemos(memos);
+  appendLog(memo);
 
-    document.getElementById('memoInput').value = '';
-    autoResize(document.getElementById('memoInput'));
-    setStatus('タグを選んで録音 or テキスト入力', '');
-    showToast('✅ メモを保存しました');
-  } catch (e) {
-    showToast('⚠️ 保存に失敗しました');
-  }
+  document.getElementById('memoInput').value = '';
+  autoResize(document.getElementById('memoInput'));
+  renderMemos();
+  setStatus('タグを選んで録音 or テキスト入力', '');
+  showToast('✅ メモを保存しました');
 }
 
 // ===== タグ選択 =====
@@ -588,17 +585,17 @@ function renderMemos() {
   filtered.forEach(memo => {
     const card = document.createElement('div');
     card.className = 'memo-card';
-    card.dataset.fid = memo.firestoreId;
+    card.dataset.fid = memo.id;
     card.innerHTML = `
       <div class="card-header">
         <span class="tag-badge tag-${memo.tag}">${memo.tag}</span>
         <span class="card-time">${memo.timeDisplay || memo.time || ''}</span>
       </div>
       <div class="memo-text">${escapeHtml(memo.text)}</div>
-      <div class="card-actions" id="actions-${memo.firestoreId}">
-        <button class="btn-copy btn-edit-cancel" onclick="copyMemo('${memo.firestoreId}')">コピー</button>
-        <button class="btn-copy btn-edit" onclick="startEdit('${memo.firestoreId}')">編集</button>
-        <button class="btn-delete" onclick="deleteMemo('${memo.firestoreId}')">削除</button>
+      <div class="card-actions" id="actions-${memo.id}">
+        <button class="btn-copy btn-edit-cancel" onclick="copyMemo('${memo.id}')">コピー</button>
+        <button class="btn-copy btn-edit" onclick="startEdit('${memo.id}')">編集</button>
+        <button class="btn-delete" onclick="deleteMemo('${memo.id}')">削除</button>
       </div>
     `;
     list.appendChild(card);
@@ -609,27 +606,25 @@ function renderMemos() {
 const ALL_TAGS = ['その他', '安全', '品質', '設備', '改善', '採用', '人員', '生産計画'];
 const TAG_ICONS = { '安全':'🔴', '品質':'🔵', '設備':'🟢', '改善':'🟡', '採用':'🟣', '人員':'🩵', '生産計画':'🩷', 'その他':'⚪' };
 
-function startEdit(firestoreId) {
-  const memo = memos.find(m => m.firestoreId === firestoreId);
+function startEdit(id) {
+  const memo = memos.find(m => m.id === id);
   if (!memo) return;
 
-  const card = document.querySelector(`[data-fid="${firestoreId}"]`);
+  const card = document.querySelector(`[data-fid="${id}"]`);
   const textEl = card.querySelector('.memo-text');
-  const actionsEl = document.getElementById(`actions-${firestoreId}`);
+  const actionsEl = document.getElementById(`actions-${id}`);
 
-  // タグ選択ボタンを挿入
   const tagRow = document.createElement('div');
   tagRow.className = 'tag-selector';
-  tagRow.id = `edit-tags-${firestoreId}`;
+  tagRow.id = `edit-tags-${id}`;
   tagRow.style.marginTop = '8px';
   tagRow.innerHTML = ALL_TAGS.map(t => `
     <button class="tag-btn${t === memo.tag ? ' selected' : ''}"
-      onclick="selectEditTag(this, '${firestoreId}')" data-tag="${t}">
+      onclick="selectEditTag(this, '${id}')" data-tag="${t}">
       ${TAG_ICONS[t]} ${t}
     </button>`).join('');
   textEl.before(tagRow);
 
-  // テキストをtextareaに置き換え
   const textarea = document.createElement('textarea');
   textarea.className = 'edit-area';
   textarea.value = memo.text;
@@ -637,103 +632,81 @@ function startEdit(firestoreId) {
   textEl.replaceWith(textarea);
   textarea.focus();
 
-  // ボタンを編集用に切り替え
   actionsEl.innerHTML = `
-    <button class="btn-copy btn-edit-cancel" onclick="cancelEdit('${firestoreId}')">キャンセル</button>
-    <button class="btn-copy btn-edit-save" onclick="saveEdit('${firestoreId}')">保存</button>
+    <button class="btn-copy btn-edit-cancel" onclick="cancelEdit()">キャンセル</button>
+    <button class="btn-copy btn-edit-save" onclick="saveEdit('${id}')">保存</button>
   `;
 }
 
-function selectEditTag(el, firestoreId) {
-  document.querySelectorAll(`#edit-tags-${firestoreId} .tag-btn`).forEach(b => b.classList.remove('selected'));
+function selectEditTag(el, id) {
+  document.querySelectorAll(`#edit-tags-${id} .tag-btn`).forEach(b => b.classList.remove('selected'));
   el.classList.add('selected');
 }
 
-function cancelEdit(firestoreId) {
+function cancelEdit() {
   renderMemos();
 }
 
-async function saveEdit(firestoreId) {
-  const card = document.querySelector(`[data-fid="${firestoreId}"]`);
+function saveEdit(id) {
+  const card = document.querySelector(`[data-fid="${id}"]`);
   const textarea = card.querySelector('.edit-area');
   const newText = textarea.value.trim();
   if (!newText) { showToast('テキストを入力してください'); return; }
 
-  const selectedTagBtn = card.querySelector(`#edit-tags-${firestoreId} .tag-btn.selected`);
+  const selectedTagBtn = card.querySelector(`#edit-tags-${id} .tag-btn.selected`);
   const newTag = selectedTagBtn ? selectedTagBtn.dataset.tag : null;
 
-  try {
-    const update = { text: newText };
-    if (newTag) update.tag = newTag;
-    await db.collection('memos').doc(firestoreId).update(update);
-    showToast('✅ 編集しました');
-  } catch (e) {
-    showToast('⚠️ 編集に失敗しました');
-  }
+  const idx = memos.findIndex(m => m.id === id);
+  if (idx === -1) return;
+  memos[idx].text = newText;
+  if (newTag) memos[idx].tag = newTag;
+  saveMemos(memos);
+  renderMemos();
+  showToast('✅ 編集しました');
 }
 
 // ===== 削除（アクティブリストのみ。ログは保持） =====
-async function deleteMemo(firestoreId) {
+function deleteMemo(id) {
   if (!confirm('このメモを削除しますか？\n※日報ログには記録が残ります。')) return;
-  try {
-    await db.collection('memos').doc(firestoreId).delete();
-  } catch (e) {
-    showToast('⚠️ 削除に失敗しました');
-  }
+  memos = memos.filter(m => m.id !== id);
+  saveMemos(memos);
+  renderMemos();
 }
 
 // ===== コピー =====
-function copyMemo(firestoreId) {
-  const memo = memos.find(m => m.firestoreId === firestoreId);
+function copyMemo(id) {
+  const memo = memos.find(m => m.id === id);
   if (!memo) return;
   const text = `[${memo.tag}] ${memo.timeDisplay || memo.time}\n${memo.text}`;
   navigator.clipboard.writeText(text).then(() => showToast('📋 コピーしました'));
 }
 
 // ===== 日報Excelエクスポート（永続ログから出力） =====
-async function exportToExcel() {
-  try {
-    showToast('📊 日報を作成中…');
-    const snapshot = await db.collection('memos_log')
-      .orderBy('createdAt', 'asc')
-      .get();
-
-    if (snapshot.empty) {
-      showToast('記録がありません');
-      return;
-    }
-
-    const wsData = [['日付', '時刻', 'カテゴリ', '内容']];
-    snapshot.docs.forEach(doc => {
-      const m = doc.data();
-      wsData.push([m.date || '', m.time || '', m.tag, m.text]);
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [
-      { wch: 14 },
-      { wch: 8 },
-      { wch: 8 },
-      { wch: 50 },
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '日報');
-    const dateStr = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-    XLSX.writeFile(wb, `日報_${dateStr}.xlsx`);
-    showToast('📊 日報Excelを出力しました');
-  } catch (e) {
-    showToast('⚠️ 出力に失敗しました');
+function exportToExcel() {
+  const log = loadLog();
+  if (!log.length) {
+    showToast('記録がありません');
+    return;
   }
+
+  showToast('📊 日報を作成中…');
+  const wsData = [['日付', '時刻', 'カテゴリ', '内容']];
+  log.forEach(m => wsData.push([m.date || '', m.time || '', m.tag, m.text]));
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [{ wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 50 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '日報');
+  const dateStr = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+  XLSX.writeFile(wb, `日報_${dateStr}.xlsx`);
+  showToast('📊 日報Excelを出力しました');
 }
 
 // ===== ユーティリティ =====
 function setStatus(msg, cls) {
   const el = document.getElementById('statusBar');
-  const dot = document.getElementById('syncDot');
-  el.innerHTML = '';
-  el.appendChild(dot);
-  el.append(msg);
+  el.innerHTML = `<span class="storage-icon">💾</span>${msg}`;
   el.className = 'status-bar' + (cls ? ' ' + cls : '');
 }
 
